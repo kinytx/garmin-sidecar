@@ -1,0 +1,12 @@
+*.exe
+*.o
+*.obj
+*.dll
+*.so
+*.dylib
+*.wasm
+wasm/garmin_ble_core.mjs
+build/
+dist/
+.cache/
+.DS_Store
