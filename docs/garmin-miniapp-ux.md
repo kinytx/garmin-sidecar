@@ -39,6 +39,7 @@ Backend responsibilities / 后端职责：
 - Directory request.
 - FIT file request.
 - Full-log queue and local FIT deduplication.
+- Location FIT pairing and coordinate extraction.
 - Import staging / 导入暂存。
 
 ## Known Device Strategy / 已知设备策略
@@ -111,6 +112,62 @@ connection state.
 8. EN: when a FIT file completes, send it into the same import staging UX used
    by normal LDC imports.  
    中文：FIT 文件完成后，进入与普通 LDC 导入相同的暂存确认 UX。
+
+## Coordinate Handling / 坐标信息
+
+EN: Garmin dive activity FIT files may not contain GPS even when the watch has
+location information. X50i currently exposes location through a separate
+`FIT_TYPE_8` file.
+
+中文：Garmin 潜水活动 FIT 里不一定直接带 GPS。X50i 当前实测是通过单独的
+`FIT_TYPE_8` 位置文件提供坐标。
+
+Known rules / 当前规则：
+
+- X50i:
+  - Activity log: `FIT_TYPE_4`
+  - Location records: `FIT_TYPE_8`
+  - Location FIT native message: `29`
+  - Field `1`: latitude in Garmin semicircles
+  - Field `2`: longitude in Garmin semicircles
+  - Convert semicircle to degrees: `degrees = semicircle * 180 / 2147483648`
+- Mk3i:
+  - Activity log: `FIT_TYPE_4`
+  - Current samples did not expose `FIT_TYPE_8`
+  - Standard activity GPS fields are present but empty in current samples
+  - `FIT_TYPE_60` has coordinate-shaped values, but user confirmed they are not
+    personal dive sites; treat them as POI / map index candidates, not dive GPS
+
+Product behavior / 产品处理：
+
+1. Backend / sidecar should try to fetch location files after activity files.
+2. If a matching location record exists, attach `latitude` / `longitude` to the
+   import staging record.
+3. If no reliable coordinate exists, leave coordinates empty and let the user
+   choose or confirm a dive site manually.
+4. Mini-program should display coordinate status as:
+   - `已定位`: imported record has trusted coordinates.
+   - `待确认`: possible location candidate exists but is not trusted.
+   - `无坐标`: no reliable coordinate found.
+
+Suggested staging shape / 建议暂存字段：
+
+```json
+{
+  "location": {
+    "source": "garmin-fit-type-8",
+    "latitude": 31.237034,
+    "longitude": 119.627637,
+    "confidence": "trusted",
+    "raw": {
+      "fitType": "FIT_TYPE_8",
+      "message": 29,
+      "latitudeSemicircle": 372672334,
+      "longitudeSemicircle": 1427213298
+    }
+  }
+}
+```
 
 ## Client Events / 客户端事件
 

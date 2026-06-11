@@ -65,6 +65,7 @@ EN: For Garmin, `transport.notify` is a BLE notification from the watch.
 {"type":"device.sync.plan","sessionId":"watch-1","mode":"all-logs","total":12,"queued":3,"skipped":9}
 {"type":"device.sync.file","sessionId":"watch-1","mode":"all-logs","file":{"fileIndex":4660,"dataType":128,"subType":4},"remaining":2}
 {"type":"device.dive","sessionId":"watch-1","format":"fit","data":"base64..."}
+{"type":"device.location","sessionId":"watch-1","source":"garmin-fit-type-8","latitude":31.237034,"longitude":119.627637,"confidence":"trusted"}
 {"type":"device.sync.complete","sessionId":"watch-1","mode":"all-logs","downloaded":3,"skipped":9,"failed":0}
 {"type":"device.error","sessionId":"watch-1","message":"..."}
 ```
@@ -79,6 +80,10 @@ EN: The client should only special-case local transport actions.
 - `device.dive`
   - EN: pass completed FIT bytes into the import staging flow.
   - 中文：把完整 FIT bytes 交给导入暂存流程，而不是直接写正式日志。
+- `device.location`
+  - EN: trusted coordinate extracted from Garmin location FIT or a future
+    equivalent source.
+  - 中文：从 Garmin 位置 FIT 或后续等价来源解析出的可信坐标。
 
 ## Download All Logs / 下载全部日志
 
@@ -121,6 +126,50 @@ can cover the full no-flags / gb-default listings on real devices.
 中文：当前 sidecar 核心仍是早期 GFDI 目录模型。probe 已经跑通更新的
 FileSync protobuf 多 profile 路径；下一步要把这部分下沉到 sidecar core，让
 `device.downloadAllLogs` 真正在实机上覆盖 no-flags / gb-default 等完整列表。
+
+## Coordinates / 坐标
+
+EN: Garmin activity FIT files can have empty GPS fields. For X50i, trusted
+coordinates have been observed in a separate `FIT_TYPE_8` location FIT.
+
+中文：Garmin 活动 FIT 里的 GPS 字段可能为空。X50i 已实测可信坐标来自单独的
+`FIT_TYPE_8` 位置 FIT。
+
+Observed X50i mapping:
+
+- `FIT_TYPE_4`: dive activity FIT.
+- `FIT_TYPE_8`: location FIT.
+- Native message `29`, field `1`: latitude in Garmin semicircles.
+- Native message `29`, field `2`: longitude in Garmin semicircles.
+- Conversion: `degrees = semicircle * 180 / 2147483648`.
+
+Suggested normalized event:
+
+```json
+{
+  "type": "device.location",
+  "sessionId": "watch-1",
+  "source": "garmin-fit-type-8",
+  "latitude": 31.237034,
+  "longitude": 119.627637,
+  "confidence": "trusted",
+  "raw": {
+    "fitType": "FIT_TYPE_8",
+    "message": 29,
+    "latitudeSemicircle": 372672334,
+    "longitudeSemicircle": 1427213298
+  }
+}
+```
+
+Mk3i note:
+
+- Current Mk3i activity FIT samples expose GPS field definitions but values are
+  empty.
+- Current samples did not expose `FIT_TYPE_8`.
+- `FIT_TYPE_60` contains coordinate-shaped values, but user validation says
+  they are not visited dive sites. Treat as POI / map index candidates, not
+  trusted dive coordinates.
 
 ## Router Integration / Router 接入
 

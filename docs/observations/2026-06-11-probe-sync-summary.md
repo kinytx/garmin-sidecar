@@ -100,3 +100,27 @@ The probe has already proven the newer Garmin FileSync protobuf profiles:
 Next protocol task: move FileSync protobuf multi-profile listing and request
 logic from `garmin-ble-probe` into the sidecar core, then route those entries
 through the same `device.downloadAllLogs` queue.
+
+## Coordinate Landing Strategy
+
+Coordinates should be treated as a separate attachment to the imported dive
+record, not assumed to live inside every activity FIT.
+
+Current trusted source:
+
+- X50i `FIT_TYPE_8`
+  - native message `29`
+  - field `1`: latitude semicircle
+  - field `2`: longitude semicircle
+  - conversion: `degrees = semicircle * 180 / 2147483648`
+
+Current non-trusted candidates:
+
+- Mk3i `FIT_TYPE_60`: coordinate-shaped values exist, but user confirmed they
+  are not visited dive sites. Keep as POI / map index research material only.
+
+Mini-program / staging expectation:
+
+- show `已定位` when trusted coordinates are attached.
+- show `待确认` when only untrusted candidates exist.
+- show `无坐标` when no reliable coordinate source is found.
