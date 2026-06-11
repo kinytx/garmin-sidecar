@@ -70,6 +70,7 @@ not copy Gadgetbridge AGPL source code into this project. See `CLEAN_ROOM.md`.
 - `ROADMAP.md`
 - `CLEAN_ROOM.md`
 - `docs/garmin-sidecar-architecture.md`
+- `docs/device-compatibility.md`
 - `docs/garmin-wss-protocol.md`
 - `docs/garmin-miniapp-ux.md`
 - `docs/observations/2026-06-11-probe-sync-summary.md`

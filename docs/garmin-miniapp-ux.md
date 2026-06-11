@@ -1,5 +1,9 @@
 # Garmin Mini-Program UX Notes / Garmin 小程序 UX 说明
 
+设备兼容清单 / Device compatibility:
+
+- `docs/device-compatibility.md`
+
 ## Role Split / 职责划分
 
 EN: The mini-program should not implement Garmin ML/MLR/GFDI. It only bridges
