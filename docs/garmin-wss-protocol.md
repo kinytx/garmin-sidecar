@@ -170,6 +170,9 @@ Mk3i note:
 - `FIT_TYPE_60` contains coordinate-shaped values, but user validation says
   they are not visited dive sites. Treat as POI / map index candidates, not
   trusted dive coordinates.
+- Official FIT SDK profile has no Mk3-specific coordinate message and
+  `dive_summary` has no coordinate fields. The standard places to check are
+  `session`, `lap`, `record`, `gps_metadata`, and `weather_conditions`.
 
 ## Router Integration / Router 接入
 

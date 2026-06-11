@@ -106,6 +106,28 @@ through the same `device.downloadAllLogs` queue.
 Coordinates should be treated as a separate attachment to the imported dive
 record, not assumed to live inside every activity FIT.
 
+Official FIT SDK check:
+
+- Garmin's current FIT SDK publishes the canonical `Profile.xlsx` through the
+  official `fit-sdk-tools` repository, and the generated Python SDK profile is
+  based on the same profile data.
+- Profile version checked locally: `21.205.0Release`.
+- No Mk3 / Mk3i-specific coordinate message is defined by the official profile.
+- Standard coordinate fields are:
+  - `session`: `start_position_lat/long`, `end_position_lat/long`,
+    `nec_lat/long`, `swc_lat/long`
+  - `lap`: `start_position_lat/long`, `end_position_lat/long`
+  - `record`: `position_lat/long`
+  - `gps_metadata`: `position_lat/long`
+  - `weather_conditions`: `observed_location_lat/long`
+  - `course_point`, `segment_point`, `segment_lap`: route / segment coordinates
+  - `dive_summary`: no coordinate fields
+
+This means the Mk3i activity FIT samples are not missing coordinates because of
+an SDK mapping gap: the official coordinate fields are known, but the values are
+empty in the current samples. Trusted GPS likely needs a separate location file
+or a device/private message not documented as an Mk3-specific profile field.
+
 Current trusted source:
 
 - X50i `FIT_TYPE_8`
