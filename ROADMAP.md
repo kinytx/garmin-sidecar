@@ -12,6 +12,8 @@
 - [x] Extend `garmin-ble-probe` to capture service/characteristic details after
       user-selected connect.
 - [x] Save captures to DivePlan ECS with device model, app version, and consent.
+- [x] Verify cached direct connect on Descent X50i and document the known-device
+      strategy for Garmin BLE/GATT devices.
 - [ ] Add anonymized packet fixture files under `fixtures/`.
 - [ ] Confirm Descent Mk2/Mk3/G1/G2/X50i service UUIDs and write/notify pairs.
       Mk3i first capture confirms Garmin ML/GFDI service
@@ -27,16 +29,20 @@
 
 ## Phase 3: Directory and FIT Download
 
-- [ ] Request activity directory entries.
-- [ ] Filter likely dive FIT files first.
+- [x] Add WSS full-log queue around directory entries.
+- [x] Filter `FIT_TYPE_4` / activity FIT entries first.
+- [x] Persist completed FIT bytes with checksum and source metadata in the
+      sidecar local cache.
 - [ ] Download one FIT file end-to-end.
-- [ ] Persist raw FIT bytes with checksum and source metadata.
+- [ ] Move probe-proven FileSync protobuf multi-profile listing into the
+      sidecar core.
 - [ ] Convert downloaded FIT bytes into DivePlan staging records.
 
 ## Phase 4: Product Integration
 
 - [ ] Add ECS WSS endpoint for `driver=garmin-sidecar`.
-- [ ] Add mini-program UI state: "Garmin requires Sidecar sync".
+- [x] Document mini-program UI state for known Garmin devices, cached direct
+      connect, bridge setup, and `device.downloadAllLogs`.
 - [ ] Add Android collector pairing and account binding flow.
 - [ ] Add admin diagnostics for failed Garmin sessions.
 

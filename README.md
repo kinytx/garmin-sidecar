@@ -35,14 +35,17 @@ Implemented:
 - C99 framing, COBS, CRC, GFDI helper functions.
 - Native smoke tests for the C core, C++ wrapper, and LDC-style facade.
 - WSS message envelope sketches for client-owned BLE plus backend-owned state.
+- WSS `device.downloadAllLogs` queue for activity FIT entries with local cache
+  and SHA-256 deduplication.
+- Mini-program integration notes for known Garmin devices, cached direct
+  connect, BLE byte forwarding, and full-log sync.
 
 Not verified yet:
 
-- Real Garmin Descent BLE handshake.
-- Real directory listing from a watch.
-- Real FIT download from a watch.
 - Android sidecar collector.
 - Production ECS WSS deployment.
+- FileSync protobuf multi-profile listing in the sidecar core. This is already
+  proven in `garmin-ble-probe` and should be moved here next.
 
 ## Run Smoke Tests
 
@@ -69,3 +72,4 @@ not copy Gadgetbridge AGPL source code into this project. See `CLEAN_ROOM.md`.
 - `docs/garmin-sidecar-architecture.md`
 - `docs/garmin-wss-protocol.md`
 - `docs/garmin-miniapp-ux.md`
+- `docs/observations/2026-06-11-probe-sync-summary.md`

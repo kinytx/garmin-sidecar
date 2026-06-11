@@ -46,6 +46,7 @@ EN: Legacy Garmin messages are normalized by `device_session_router.js`.
 {"type":"transport.notify","sessionId":"watch-1","data":"base64..."}
 {"type":"device.foreach","sessionId":"watch-1"}
 {"type":"device.requestFile","sessionId":"watch-1","fileIndex":4660,"fileSize":123456,"dataType":128,"subType":4}
+{"type":"device.downloadAllLogs","sessionId":"watch-1"}
 {"type":"session.close","sessionId":"watch-1"}
 ```
 
@@ -61,7 +62,10 @@ EN: For Garmin, `transport.notify` is a BLE notification from the watch.
 {"type":"device.event","sessionId":"watch-1","event":{"type":1,"service":0,"messageId":0}}
 {"type":"device.progress","sessionId":"watch-1","current":1024,"maximum":4096}
 {"type":"device.directory","sessionId":"watch-1","format":"garmin-directory","data":"base64..."}
+{"type":"device.sync.plan","sessionId":"watch-1","mode":"all-logs","total":12,"queued":3,"skipped":9}
+{"type":"device.sync.file","sessionId":"watch-1","mode":"all-logs","file":{"fileIndex":4660,"dataType":128,"subType":4},"remaining":2}
 {"type":"device.dive","sessionId":"watch-1","format":"fit","data":"base64..."}
+{"type":"device.sync.complete","sessionId":"watch-1","mode":"all-logs","downloaded":3,"skipped":9,"failed":0}
 {"type":"device.error","sessionId":"watch-1","message":"..."}
 ```
 
@@ -75,6 +79,48 @@ EN: The client should only special-case local transport actions.
 - `device.dive`
   - EN: pass completed FIT bytes into the import staging flow.
   - 中文：把完整 FIT bytes 交给导入暂存流程，而不是直接写正式日志。
+
+## Download All Logs / 下载全部日志
+
+EN: `device.downloadAllLogs` asks the sidecar to fetch the Garmin directory,
+filter dive activity files, skip files already present in the local sidecar
+cache, and download the rest one by one.
+
+中文：`device.downloadAllLogs` 会让 sidecar 先获取 Garmin 目录，再筛选潜水活动
+FIT，跳过本地 sidecar 缓存里已经存在的文件，并逐个下载剩余日志。
+
+Current filter:
+
+- `dataType=128`
+- `subType=4`
+- `fileSize > 0`
+
+This matches the observed `FIT_TYPE_4` activity files from Descent X50i and
+Mk3i. The sidecar stores completed FIT files under:
+
+```text
+GARMIN_SIDECAR_STORE
+```
+
+If `GARMIN_SIDECAR_STORE` is not set, the default is:
+
+```text
+.cache/garmin-sidecar
+```
+
+Deduplication uses two levels:
+
+- directory key: `fileIndex:dataType:subType:fileNumber:fileSize:garminTime`
+- content hash: SHA-256 of completed FIT bytes
+
+EN: The current sidecar core still uses the early GFDI directory model. The
+newer probe has already proven the FileSync protobuf multi-profile path; that
+logic should be moved into the sidecar core next so `device.downloadAllLogs`
+can cover the full no-flags / gb-default listings on real devices.
+
+中文：当前 sidecar 核心仍是早期 GFDI 目录模型。probe 已经跑通更新的
+FileSync protobuf 多 profile 路径；下一步要把这部分下沉到 sidecar core，让
+`device.downloadAllLogs` 真正在实机上覆盖 no-flags / gb-default 等完整列表。
 
 ## Router Integration / Router 接入
 

@@ -7,6 +7,21 @@
 - Probe version: 0.6.7
 - Capture path: Android BLE probe -> ECS sample upload -> sidecar parser
 
+## Cached Direct Connect
+
+Latest probe testing confirmed that a previously discovered / cached X50i can
+be connected directly, even when the current scan result does not show the
+device advertising.
+
+Practical conclusion:
+
+- The app should show known Garmin devices by default.
+- For Garmin BLE/GATT devices, prefer cached direct connect first.
+- Scanning remains useful for first discovery, address refresh, and visible
+  status, but should not be the only way to start a connection.
+- The same strategy is expected to work for most Garmin Descent / Fenix BLE
+  devices, with per-model validation kept in the compatibility table.
+
 ## FileSync Listing
 
 The Gadgetbridge-style FileSync list request with flags `42405/42405` only exposed

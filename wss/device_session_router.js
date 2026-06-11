@@ -1,3 +1,7 @@
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+
 function bytesToBase64(bytes) {
   return Buffer.from(bytes).toString('base64');
 }
@@ -55,6 +59,132 @@ function eventToJson(event) {
   };
 }
 
+function readU16LE(bytes, offset) {
+  return bytes[offset] | (bytes[offset + 1] << 8);
+}
+
+function readU32LE(bytes, offset) {
+  return (
+    bytes[offset] |
+    (bytes[offset + 1] << 8) |
+    (bytes[offset + 2] << 16) |
+    (bytes[offset + 3] << 24)
+  ) >>> 0;
+}
+
+function isFit(bytes) {
+  return bytes && bytes.length >= 12 && bytes[8] === 0x2e && bytes[9] === 0x46 && bytes[10] === 0x49 && bytes[11] === 0x54;
+}
+
+function sha256Hex(bytes) {
+  return createHash('sha256').update(Buffer.from(bytes)).digest('hex');
+}
+
+function directoryEntryKey(entry) {
+  return [
+    entry.fileIndex,
+    entry.dataType,
+    entry.subType,
+    entry.fileNumber,
+    entry.fileSize,
+    entry.garminTime,
+  ].join(':');
+}
+
+function normalizeDirectoryEntry(entry) {
+  const normalized = {
+    fileIndex: Number(entry?.fileIndex || 0),
+    dataType: Number(entry?.dataType || 0),
+    subType: Number(entry?.subType || 0),
+    fileNumber: Number(entry?.fileNumber || 0),
+    specificFlags: Number(entry?.specificFlags || 0),
+    fileFlags: Number(entry?.fileFlags || 0),
+    fileSize: Number(entry?.fileSize || 0),
+    garminTime: Number(entry?.garminTime || 0),
+  };
+  normalized.key = entry?.key || directoryEntryKey(normalized);
+  return normalized;
+}
+
+function parseDirectoryEntries(payload) {
+  const bytes = payload instanceof Uint8Array ? payload : new Uint8Array(payload || []);
+  const entries = [];
+  for (let offset = 0; offset + 16 <= bytes.length; offset += 16) {
+    const entry = {
+      fileIndex: readU16LE(bytes, offset),
+      dataType: bytes[offset + 2],
+      subType: bytes[offset + 3],
+      fileNumber: readU16LE(bytes, offset + 4),
+      specificFlags: bytes[offset + 6],
+      fileFlags: bytes[offset + 7],
+      fileSize: readU32LE(bytes, offset + 8),
+      garminTime: readU32LE(bytes, offset + 12),
+    };
+    entries.push(normalizeDirectoryEntry(entry));
+  }
+  return entries;
+}
+
+function isDiveActivityEntry(entry) {
+  return entry && entry.dataType === 128 && entry.subType === 4 && entry.fileSize > 0;
+}
+
+class GarminDownloadStore {
+  constructor(options = {}) {
+    this.root = resolve(options.root || process.env.GARMIN_SIDECAR_STORE || join(process.cwd(), '.cache', 'garmin-sidecar'));
+    this.indexPath = join(this.root, 'index.json');
+    this.index = { files: {} };
+    mkdirSync(this.root, { recursive: true });
+    this.load();
+  }
+
+  load() {
+    if (!existsSync(this.indexPath)) {
+      return;
+    }
+    try {
+      const parsed = JSON.parse(readFileSync(this.indexPath, 'utf8'));
+      if (parsed && typeof parsed === 'object' && parsed.files) {
+        this.index = parsed;
+      }
+    } catch {
+      this.index = { files: {} };
+    }
+  }
+
+  hasEntry(entry) {
+    const record = this.index.files[entry.key];
+    return Boolean(record && record.path && existsSync(join(this.root, record.path)));
+  }
+
+  saveEntry(entry, bytes) {
+    const hash = sha256Hex(bytes);
+    const existing = Object.values(this.index.files).find((record) => record.sha256 === hash && record.path);
+    if (existing && existsSync(join(this.root, existing.path))) {
+      this.index.files[entry.key] = { ...existing, entry, duplicateOf: existing.entryKey || entry.key };
+      this.flush();
+      return { saved: false, duplicate: true, sha256: hash, path: existing.path };
+    }
+
+    const name = `fit-${entry.garminTime || 'unknown'}-${entry.fileIndex}-${hash.slice(0, 12)}.fit`;
+    writeFileSync(join(this.root, name), Buffer.from(bytes));
+    this.index.files[entry.key] = {
+      entryKey: entry.key,
+      entry,
+      sha256: hash,
+      path: name,
+      size: bytes.length,
+      savedAt: new Date().toISOString(),
+    };
+    this.flush();
+    return { saved: true, duplicate: false, sha256: hash, path: name };
+  }
+
+  flush() {
+    writeFileSync(this.indexPath, `${JSON.stringify(this.index, null, 2)}\n`);
+  }
+}
+
 const GarminEvent = {
   DOWNLOAD_PROGRESS: 5,
   FILE_COMPLETE: 6,
@@ -71,6 +201,14 @@ class GarminSidecarSession {
     this.maxPacketSize = options.maxPacketSize || options.mtu || 20;
     this.reliable = options.reliable !== false;
     this.currentFileIndex = null;
+    this.currentEntry = null;
+    this.downloadMode = 'manual';
+    this.downloadQueue = [];
+    this.downloaded = 0;
+    this.skipped = 0;
+    this.failed = 0;
+    this.directoryEntries = [];
+    this.store = new GarminDownloadStore({ root: options.downloadRoot || options.storeRoot });
   }
 
   open() {
@@ -100,6 +238,10 @@ class GarminSidecarSession {
         this.currentFileIndex = packet.fileIndex;
         this.requestFile(packet);
         break;
+      case 'device.downloadAllLogs':
+      case 'garmin.downloadAllLogs':
+        this.downloadAllLogs();
+        break;
       case 'session.close':
         this.send({ type: 'session.closed', sessionId: this.id });
         break;
@@ -126,13 +268,26 @@ class GarminSidecarSession {
     this.sendWrites(this.core.requestDirectory());
   }
 
+  downloadAllLogs() {
+    this.downloadMode = 'all-logs';
+    this.downloadQueue = [];
+    this.downloaded = 0;
+    this.skipped = 0;
+    this.failed = 0;
+    this.directoryEntries = [];
+    this.send({ type: 'device.sync.started', sessionId: this.id, mode: this.downloadMode });
+    this.requestDirectory();
+  }
+
   requestFile(file) {
     if (!this.core.requestFile) {
       this.error('core does not expose requestFile');
       return;
     }
-    this.currentFileIndex = file.fileIndex;
-    this.sendWrites(this.core.requestFile(file));
+    const entry = normalizeDirectoryEntry(file);
+    this.currentFileIndex = entry.fileIndex;
+    this.currentEntry = entry;
+    this.sendWrites(this.core.requestFile(entry));
   }
 
   handleEvent(event) {
@@ -146,24 +301,100 @@ class GarminSidecarSession {
     }
 
     if (event.type === GarminEvent.DIRECTORY_ENTRY && event.payload && event.payload.length) {
+      const entries = parseDirectoryEntries(event.payload);
+      this.directoryEntries = entries;
       this.send({
         type: 'device.directory',
         sessionId: this.id,
         format: 'garmin-directory',
         data: bytesToBase64(event.payload),
         firstEntry: event.file,
+        entryCount: entries.length,
+        diveLogCount: entries.filter(isDiveActivityEntry).length,
       });
+      if (this.downloadMode === 'all-logs') {
+        this.queueAllLogs(entries);
+      }
     }
 
     if (event.type === GarminEvent.FILE_COMPLETE && event.payload && event.payload.length) {
+      const entry = normalizeDirectoryEntry(this.currentEntry || { fileIndex: this.currentFileIndex });
+      const fit = isFit(event.payload);
+      const stored = fit && isDiveActivityEntry(entry) ? this.store.saveEntry(entry, event.payload) : null;
       this.send({
         type: 'device.dive',
         sessionId: this.id,
         format: 'fit',
         fileIndex: this.currentFileIndex,
+        file: entry,
+        isFit: fit,
+        stored,
         data: bytesToBase64(event.payload),
       });
+      if (this.downloadMode === 'all-logs') {
+        this.downloaded += 1;
+        this.currentEntry = null;
+        this.currentFileIndex = null;
+        this.downloadNextQueuedLog();
+      }
     }
+  }
+
+  queueAllLogs(entries) {
+    const logs = entries.filter(isDiveActivityEntry);
+    const seen = new Set();
+    this.downloadQueue = [];
+    this.skipped = 0;
+
+    for (const entry of logs) {
+      if (seen.has(entry.key)) {
+        this.skipped += 1;
+        continue;
+      }
+      seen.add(entry.key);
+      if (this.store.hasEntry(entry)) {
+        this.skipped += 1;
+        continue;
+      }
+      this.downloadQueue.push(entry);
+    }
+
+    this.send({
+      type: 'device.sync.plan',
+      sessionId: this.id,
+      mode: this.downloadMode,
+      total: logs.length,
+      queued: this.downloadQueue.length,
+      skipped: this.skipped,
+    });
+    this.downloadNextQueuedLog();
+  }
+
+  downloadNextQueuedLog() {
+    const next = this.downloadQueue.shift();
+    if (!next) {
+      this.send({
+        type: 'device.sync.complete',
+        sessionId: this.id,
+        mode: this.downloadMode,
+        downloaded: this.downloaded,
+        skipped: this.skipped,
+        failed: this.failed,
+      });
+      this.downloadMode = 'manual';
+      return;
+    }
+
+    this.currentEntry = next;
+    this.currentFileIndex = next.fileIndex;
+    this.send({
+      type: 'device.sync.file',
+      sessionId: this.id,
+      mode: this.downloadMode,
+      file: next,
+      remaining: this.downloadQueue.length,
+    });
+    this.requestFile(next);
   }
 
   sendWrites(writes) {
